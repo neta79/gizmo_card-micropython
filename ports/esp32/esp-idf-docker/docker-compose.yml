@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  esp-idf:
+    build: 
+        context: .
+        args:
+          - IDF_CLONE_BRANCH_OR_TAG=${IDF_CLONE_BRANCH_OR_TAG}
+          - IDF_INSTALL_TARGETS=${IDF_INSTALL_TARGETS}
+          - IDF_CLONE_SHALLOW=1
+    image: neta/gizmo_card-idf
+
