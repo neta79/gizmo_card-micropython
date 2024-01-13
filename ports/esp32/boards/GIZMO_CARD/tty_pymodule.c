@@ -7,11 +7,12 @@
 // MicroPython bindings
 
 
-STATIC mp_obj_t refresh_obj_() {
-    refresh();
+STATIC mp_obj_t refresh_obj_(size_t n_args, const mp_obj_t *args) {
+    const mp_int_t all = n_args >= 1 ? mp_obj_get_int(args[0]) : 0;
+    refresh(all);
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(refresh_obj, refresh_obj_);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(refresh_obj, 0, 1, refresh_obj_);
 
 
 STATIC mp_obj_t textat_obj_(size_t n_args, const mp_obj_t *args) {

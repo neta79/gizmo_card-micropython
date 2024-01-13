@@ -81,4 +81,5 @@ void square(int x
             , const A_Style *style
             );
 
-void refresh(void);
+void refresh(unsigned all);
+

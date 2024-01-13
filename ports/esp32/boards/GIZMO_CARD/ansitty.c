@@ -168,12 +168,18 @@ void square(int x
 }
 
 
-void refresh(void)
+void refresh(unsigned all)
 {
     int out_col = -1;
     int out_row = -1;
     char tmpbuf[64];
     unsigned ofs;
+    A_Item last_color = {0};
+    if (all)
+    {
+        memset(&context.screen, 0, sizeof(context.screen));
+    }
+
     for (unsigned row = 0; row < ANSITTY_ROWS; row++)
     {
         for (unsigned col = 0; col < ANSITTY_COLS; col++)
@@ -203,14 +209,11 @@ void refresh(void)
             }
 
             // emit cursor color sequence if needed
-            if (!item_same_color(work, screen))
+            if (!item_same_color(work, screen) && !item_same_color(work, &last_color))
             {
-                if (tmpbuf[0] == '\0')
-                {
-                    snprintf(tmpbuf, sizeof(tmpbuf), CSI);
-                }
                 ofs = strlen(tmpbuf);
-                snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, "%d;%d;%dm", work->style, work->fg, work->bg);
+                snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "%d;%d;%dm", work->style, work->fg, work->bg);
+                last_color = *work; // remember last color in an attempt to reduce ANSI color sequences
             }
 
             // finally, emit the character
