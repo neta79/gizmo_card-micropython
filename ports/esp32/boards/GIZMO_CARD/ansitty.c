@@ -19,6 +19,13 @@ typedef struct {
 typedef struct {
     A_Item_s work;
     A_Item_s screen;
+    struct {
+        unsigned col;
+        unsigned row;
+        unsigned char fg;
+        unsigned char bg;
+        unsigned char style;
+    } cursor;
 } A_Context;
 
 
@@ -42,6 +49,77 @@ static int item_same_color(const A_Item *a, const A_Item *b)
 static A_Context context;
 
 
+void gotoxy(int x, int y);
+void setcolor(const FG_Color *fg, const BG_Color *bg, const A_Style *style);
+void clear(void);
+void print(const char *text);
+
+static int apply_xy(int x, int y)
+{
+    if (x >= ANSITTY_COLS)
+    {
+        return 0;
+    }
+    if (y >= ANSITTY_ROWS)
+    {
+        return 0;
+    }
+    context.cursor.col = x;
+    context.cursor.row = y;
+    return 1;
+}
+
+static void apply_color(const FG_Color *fg, const BG_Color *bg, const A_Style *style)
+{
+    if (fg)
+    {
+        context.cursor.fg = *fg;
+    }
+    if (bg)
+    {
+        context.cursor.bg = *bg;
+    }
+    if (style)
+    {
+        context.cursor.style = *style;
+    }
+}
+
+static void apply_char(A_Item *dest, const char ch, const FG_Color *fg, const BG_Color *bg, const A_Style *style)
+{
+    dest->txt = ch;
+    dest->fg = fg ? *fg : context.cursor.fg;
+    dest->bg = bg ? *bg : context.cursor.bg;
+    dest->style = style ? *style : context.cursor.style;
+    context.cursor.col++;
+}
+
+void gotoxy(int x, int y)
+{
+    apply_xy(x, y);
+}
+
+void setcolor(const FG_Color *fg, const BG_Color *bg, const A_Style *style)
+{
+    apply_color(fg, bg, style);
+}
+
+void clear(void)
+{
+    unsigned i;
+    for (i=0; i<ANSITTY_COLS*ANSITTY_ROWS; ++i)
+    {
+        context.work.data[i].txt = ' ';
+        context.screen.data[i].txt = ' ';
+    }
+    refresh(1);
+}
+
+void text(const char *text)
+{
+    textat(context.cursor.col, context.cursor.row, text, NULL, NULL, NULL);
+}
+
 void textat(const int x
             , const int y
             , const char *text
@@ -50,27 +128,13 @@ void textat(const int x
             , const A_Style *style
             ) 
 {
-    if (x >= ANSITTY_ROWS)
-    {
-        return;
-    }
+    if (!apply_xy(x, y)) return;
+    apply_color(fg, bg, style);
     int avail_w = ANSITTY_COLS - x;
     A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
     for (; *text && avail_w > 0; avail_w--, text++, dest++)
     {
-        dest->txt = *text;
-        if (fg)
-        {
-            dest->fg = *fg;
-        }
-        if (bg)
-        {
-            dest->bg = *bg;
-        }
-        if (style)
-        {
-            dest->style = *style;
-        }
+        apply_char(dest, *text, fg, bg, style);
     }
 }
 
@@ -83,27 +147,13 @@ void fillat(const int x
             , const A_Style *style
             ) 
 {
-    if (x >= ANSITTY_ROWS)
-    {
-        return;
-    }
+    if (!apply_xy(x, y)) return;
+    apply_color(fg, bg, style);
     int avail_w = ANSITTY_COLS - x;
     A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
     for (; avail_w > 0 && size > 0; avail_w--, dest++, size--)
     {
-        dest->txt = ch;
-        if (fg)
-        {
-            dest->fg = *fg;
-        }
-        if (bg)
-        {
-            dest->bg = *bg;
-        }
-        if (style)
-        {
-            dest->style = *style;
-        }
+        apply_char(dest, ch, fg, bg, style);
     }
 }
 
@@ -115,27 +165,13 @@ void chat(const int x
             , const A_Style *style
             ) 
 {
-    if (x >= ANSITTY_ROWS)
-    {
-        return;
-    }
+    if (!apply_xy(x, y)) return;
+    apply_color(fg, bg, style);
     int avail_w = ANSITTY_COLS - x;
     A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
     if (avail_w > 0)
     {
-        dest->txt = ch;
-        if (fg)
-        {
-            dest->fg = *fg;
-        }
-        if (bg)
-        {
-            dest->bg = *bg;
-        }
-        if (style)
-        {
-            dest->style = *style;
-        }
+        apply_char(dest, ch, fg, bg, style);
     }
 }
 
@@ -161,6 +197,7 @@ void square(int x
     {
         chat(x, y1, bchars[2], fg, bg, style);
         chat(x+w-1, y1, bchars[2], fg, bg, style);
+        fillat(x+1, y1, ' ', w-2, fg, bg, style);
     }
     chat(x, y+h-1, bchars[0], fg, bg, style);
     fillat(x+1, y+h-1, bchars[1], w-2, fg, bg, style);

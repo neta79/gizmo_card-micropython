@@ -13,10 +13,10 @@
 #define BEL "\a"
 
 typedef enum {
-    A_BRIGHT    = 1,
-    A_DIM       = 2,
-    A_NORMAL    = 22,
-    A_RESET_ALL = 0
+    ST_BRIGHT    = 1,
+    ST_DIM       = 2,
+    ST_NORMAL    = 22,
+    ST_RESET_ALL = 0
 } A_Style;
 
 typedef enum FG_Color {
@@ -43,7 +43,10 @@ typedef enum {
     BG_RESET           = 49,
 } BG_Color;
 
-
+void gotoxy(int x, int y);
+void setcolor(const FG_Color *fg, const BG_Color *bg, const A_Style *style);
+void clear(void);
+void text(const char *text);
 
 void textat(const int x
             , const int y
