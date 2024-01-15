@@ -106,13 +106,9 @@ void setcolor(const FG_Color *fg, const BG_Color *bg, const A_Style *style)
 
 void clear(void)
 {
-    unsigned i;
-    for (i=0; i<ANSITTY_COLS*ANSITTY_ROWS; ++i)
-    {
-        context.work.data[i].txt = ' ';
-        context.screen.data[i].txt = ' ';
-    }
-    refresh(1);
+    memset(&context.work, 0, sizeof(context.work));
+    memset(&context.screen, 0, sizeof(context.screen));
+    mp_print_str(&mp_plat_print, CSI "2J");
 }
 
 void text(const char *text)
