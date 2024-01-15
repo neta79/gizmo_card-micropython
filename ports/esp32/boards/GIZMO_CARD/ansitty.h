@@ -12,12 +12,15 @@
 #define OSC "\x1b]"
 #define BEL "\a"
 
-typedef enum {
-    ST_BRIGHT    = 1,
-    ST_DIM       = 2,
-    ST_NORMAL    = 22,
-    ST_RESET_ALL = 0
-} A_Style;
+#define ST_BRIGHT 1
+#define ST_DIM 2
+#define ST_UNDERLINE 4
+#define ST_BLINK 8
+#define ST_REVERSE 16
+#define ST_NORMAL 50
+#define ST_RESET_ALL 0 
+
+typedef unsigned char A_Style;
 
 typedef enum FG_Color {
     FG_BLACK           = 30,
@@ -43,46 +46,34 @@ typedef enum {
     BG_RESET           = 49,
 } BG_Color;
 
+#define IS_FG_COLOR(c) ((c) >= FG_BLACK && (c) <= FG_RESET)
+#define IS_BG_COLOR(c) ((c) >= BG_BLACK && (c) <= BG_RESET)
+#define IS_STYLE(c) (((c) >= ST_BRIGHT && (c) <= ST_REVERSE) || (c) == ST_NORMAL || (c) == ST_RESET_ALL)
+
 void gotoxy(int x, int y);
-void setcolor(const FG_Color *fg, const BG_Color *bg, const A_Style *style);
+void setcolor(int code);
 void clear(void);
 void text(const char *text);
 
 void textat(const int x
             , const int y
-            , const char *text
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            );
+            , const char *text);
 
 void fillat(const int x
             , const int y
             , const char ch
-            , int size
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            );
+            , int size);
 
 void chat(const int x
             , const int y
-            , const char ch
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            );
+            , const char ch);
 
 
 void square(int x
             , int y
             , int w
             , int h
-            , unsigned border
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            );
+            , unsigned border);
 
 void refresh(unsigned all);
 

@@ -41,18 +41,13 @@ static int item_eq(const A_Item *a, const A_Item *b)
 static int item_same_color(const A_Item *a, const A_Item *b)
 {
     return a->fg == b->fg
-        && a->bg == b->bg
-        && a->style == b->style
-        ;
+        && a->bg == b->bg;
 }
 
 static A_Context context;
 
 
-void gotoxy(int x, int y);
-void setcolor(const FG_Color *fg, const BG_Color *bg, const A_Style *style);
-void clear(void);
-void print(const char *text);
+
 
 static int apply_xy(int x, int y)
 {
@@ -69,28 +64,57 @@ static int apply_xy(int x, int y)
     return 1;
 }
 
-static void apply_color(const FG_Color *fg, const BG_Color *bg, const A_Style *style)
+static void apply_color(int code)
 {
-    if (fg)
+    int remove = code < 0;
+    code = code < 0 ? -code : code;
+    if (IS_FG_COLOR(code))
     {
-        context.cursor.fg = *fg;
+        context.cursor.fg = code;
     }
-    if (bg)
+    else if (IS_BG_COLOR(code))
     {
-        context.cursor.bg = *bg;
+        context.cursor.bg = code;
     }
-    if (style)
+    else switch (code) // assume it's ST_*
     {
-        context.cursor.style = *style;
+    case ST_BRIGHT:
+    case ST_DIM:
+        if (remove)
+        {
+            context.cursor.style = context.cursor.style & ~code;
+        }
+        else {
+            context.cursor.style = (context.cursor.style & ~0x03) | code;
+        }
+        break;
+    case ST_UNDERLINE:
+    case ST_BLINK:
+    case ST_REVERSE:
+        if (remove)
+        {
+            context.cursor.style = context.cursor.style & ~code;
+        } else {
+            context.cursor.style = context.cursor.style | code;
+        }
+        break;
+    case ST_NORMAL:
+        context.cursor.style = context.cursor.style & ~0x03;
+        break;
+    case ST_RESET_ALL:
+        context.cursor.style = 0;
+        break;
+    default:
+        break;
     }
 }
 
-static void apply_char(A_Item *dest, const char ch, const FG_Color *fg, const BG_Color *bg, const A_Style *style)
+static void apply_char(A_Item *dest, const char ch)
 {
     dest->txt = ch;
-    dest->fg = fg ? *fg : context.cursor.fg;
-    dest->bg = bg ? *bg : context.cursor.bg;
-    dest->style = style ? *style : context.cursor.style;
+    dest->fg = context.cursor.fg;
+    dest->bg = context.cursor.bg;
+    dest->style = context.cursor.style;
     context.cursor.col++;
 }
 
@@ -99,9 +123,9 @@ void gotoxy(int x, int y)
     apply_xy(x, y);
 }
 
-void setcolor(const FG_Color *fg, const BG_Color *bg, const A_Style *style)
+void setcolor(int code)
 {
-    apply_color(fg, bg, style);
+    apply_color(code);
 }
 
 void clear(void)
@@ -113,61 +137,46 @@ void clear(void)
 
 void text(const char *text)
 {
-    textat(context.cursor.col, context.cursor.row, text, NULL, NULL, NULL);
+    textat(context.cursor.col, context.cursor.row, text);
 }
 
 void textat(const int x
             , const int y
-            , const char *text
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            ) 
+            , const char *text) 
 {
     if (!apply_xy(x, y)) return;
-    apply_color(fg, bg, style);
     int avail_w = ANSITTY_COLS - x;
     A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
     for (; *text && avail_w > 0; avail_w--, text++, dest++)
     {
-        apply_char(dest, *text, fg, bg, style);
+        apply_char(dest, *text);
     }
 }
 
 void fillat(const int x
             , const int y
             , const char ch
-            , int size
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            ) 
+            , int size) 
 {
     if (!apply_xy(x, y)) return;
-    apply_color(fg, bg, style);
     int avail_w = ANSITTY_COLS - x;
     A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
     for (; avail_w > 0 && size > 0; avail_w--, dest++, size--)
     {
-        apply_char(dest, ch, fg, bg, style);
+        apply_char(dest, ch);
     }
 }
 
 void chat(const int x
             , const int y
-            , const char ch
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            ) 
+            , const char ch) 
 {
     if (!apply_xy(x, y)) return;
-    apply_color(fg, bg, style);
     int avail_w = ANSITTY_COLS - x;
     A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
     if (avail_w > 0)
     {
-        apply_char(dest, ch, fg, bg, style);
+        apply_char(dest, ch);
     }
 }
 
@@ -176,28 +185,24 @@ void square(int x
             , int y
             , int w
             , int h
-            , unsigned border
-            , const FG_Color *fg
-            , const BG_Color *bg
-            , const A_Style *style
-            ) 
+            , unsigned border) 
 {
     static const char border_on[] = {'+', '-', '|'};
     static const char border_off[] = {' ', ' ', ' '};
     const char *bchars = border ? border_on : border_off;
 
-    chat(x, y, bchars[0], fg, bg, style);
-    fillat(x+1, y, bchars[1], w-2, fg, bg, style);
-    chat(x+w-1, y, bchars[0], fg, bg, style);
+    chat(x, y, bchars[0]);
+    fillat(x+1, y, bchars[1], w-2);
+    chat(x+w-1, y, bchars[0]);
     for (int y1 = y+1; y1 < y+h-1; y1++)
     {
-        chat(x, y1, bchars[2], fg, bg, style);
-        chat(x+w-1, y1, bchars[2], fg, bg, style);
-        fillat(x+1, y1, ' ', w-2, fg, bg, style);
+        chat(x, y1, bchars[2]);
+        chat(x+w-1, y1, bchars[2]);
+        fillat(x+1, y1, ' ', w-2);
     }
-    chat(x, y+h-1, bchars[0], fg, bg, style);
-    fillat(x+1, y+h-1, bchars[1], w-2, fg, bg, style);
-    chat(x+w-1, y+h-1, bchars[0], fg, bg, style);
+    chat(x, y+h-1, bchars[0]);
+    fillat(x+1, y+h-1, bchars[1], w-2);
+    chat(x+w-1, y+h-1, bchars[0]);
 }
 
 
@@ -239,15 +244,72 @@ void refresh(unsigned all)
                 snprintf(tmpbuf, sizeof(tmpbuf), CSI "%d;%dH", row+1, col+1);
                 out_col = col;
                 out_row = row;
+                last_color.style = 0; // also reset current style after jumping around
+            }
+
+            // emit style sequence if needed
+            if (work->style != last_color.style)
+            {
+                const unsigned char st_mask = ST_UNDERLINE | ST_BLINK | ST_REVERSE;
+
+                // check if any of the style attributes have been removed (that requires a reset)
+                if (((last_color.style & st_mask) & (work->style & st_mask)) != (last_color.style & st_mask))
+                {
+                    // remove all style attributes
+                    ofs = strlen(tmpbuf);
+                    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "0m");
+                    memset(&last_color, 0, sizeof(last_color)); // induce a full color+style update
+                }
+
+                if ((work->style & ST_UNDERLINE) && !(last_color.style & ST_UNDERLINE))
+                {
+                    // add underline 
+                    ofs = strlen(tmpbuf);
+                    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "4m");
+                }
+                if ((work->style & ST_BLINK) && !(last_color.style & ST_BLINK))
+                {
+                    // add blink
+                    ofs = strlen(tmpbuf);
+                    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "5m");
+                }
+                if ((work->style & ST_REVERSE) && !(last_color.style & ST_REVERSE))
+                {
+                    // add reverse
+                    ofs = strlen(tmpbuf);
+                    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "7m");
+                }
+
+                if ((work->style & 0x03) != (last_color.style & 0x03))
+                {
+                    // color DIM/BRIGHT attribute changed
+                    ofs = strlen(tmpbuf);
+                    if ((work->style & ST_BRIGHT))
+                    {
+                        // BRIGHT
+                        snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "1m");
+                    }
+                    else if ((work->style & ST_DIM))
+                    {
+                        // DIM
+                        snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "2m");
+                    }
+                    else 
+                    {
+                        // neither DIM nor BRIGHT ("NORMAL")
+                        snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "22m");
+                    }
+                }
             }
 
             // emit cursor color sequence if needed
             if (!item_same_color(work, screen) && !item_same_color(work, &last_color))
             {
                 ofs = strlen(tmpbuf);
-                snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "%d;%d;%dm", work->style, work->fg, work->bg);
-                last_color = *work; // remember last color in an attempt to reduce ANSI color sequences
+                snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "%d;%dm", work->fg, work->bg);
             }
+
+            last_color = *work; // remember last color in an attempt to reduce ANSI color sequences
 
             // finally, emit the character
             ofs = strlen(tmpbuf);
