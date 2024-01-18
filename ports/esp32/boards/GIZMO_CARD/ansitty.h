@@ -1,5 +1,11 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
 #ifndef ANSITTY_COLS
 #define ANSITTY_COLS 80
 #endif
@@ -77,3 +83,6 @@ void square(int x
 
 void refresh(unsigned all);
 
+#ifdef __cplusplus
+} // extern "C"
+#endif

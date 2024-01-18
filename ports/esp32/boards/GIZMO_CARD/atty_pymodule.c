@@ -88,6 +88,9 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(square_obj, 4, 5, square_obj_);
 STATIC const mp_rom_map_elem_t atty_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_tty) },
 
+    { MP_ROM_QSTR(MP_QSTR_ROWS), MP_ROM_INT(ANSITTY_ROWS) },
+    { MP_ROM_QSTR(MP_QSTR_COLS), MP_ROM_INT(ANSITTY_COLS) },
+
     { MP_ROM_QSTR(MP_QSTR_gotoxy), MP_ROM_PTR(&gotoxy_obj) },
     { MP_ROM_QSTR(MP_QSTR_setcolor), MP_ROM_PTR(&setcolor_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&clear_obj) },

@@ -29,6 +29,85 @@ typedef struct {
 } A_Context;
 
 
+#include <stdio.h>
+
+typedef struct {
+    unsigned int state;
+    unsigned int value;
+} utf8dec_t;
+
+static unsigned int *utf8dec_next(utf8dec_t *ctx, unsigned char b)
+{
+    assert(ctx != NULL);
+
+    if (ctx->state == 0) {
+        if ((b & 0x80) == 0) {
+            // Single-byte character
+            ctx->value = b;
+            return &ctx->value;
+        } else if ((b & 0xE0) == 0xC0) {
+            // Two-byte character
+            ctx->value = b & 0x1F;
+            ctx->state = 1;
+        } else if ((b & 0xF0) == 0xE0) {
+            // Three-byte character
+            ctx->value = b & 0x0F;
+            ctx->state = 2;
+        } else if ((b & 0xF8) == 0xF0) {
+            // Four-byte character
+            ctx->value = b & 0x07;
+            ctx->state = 3;
+        } else {
+            // Invalid UTF-8 sequence
+        }
+    } else {
+        if ((b & 0xC0) != 0x80) {
+            // Invalid UTF-8 sequence
+            ctx->state = 0;
+        }
+        ctx->value = (ctx->value << 6) | (b & 0x3F);
+        ctx->state--;
+        if (ctx->state == 0) {
+            return &ctx->value;
+        }
+    }
+
+    return NULL;
+}
+
+static unsigned int utf8dec_size(utf8dec_t *ctx, const char *str)
+{
+    assert(ctx != NULL);
+    assert(str != NULL);
+    unsigned int size = 0;
+
+    for (; *str != '\0'; str++) 
+    {
+        if (utf8dec_next(ctx, *str) != NULL) 
+        {
+            size++;
+        }
+    }
+
+    return size;
+}
+
+static void utf8enc_ch(char *out, unsigned int codepoint)
+{
+    if (codepoint < 0x80)
+    {
+        out[0] = codepoint;
+        out[1] = '\0';
+    }
+    else if (codepoint < 0x800)
+    {
+        out[0] = 0xC0 | (codepoint >> 6);
+        out[1] = 0x80 | (codepoint & 0x3F);
+        out[2] = '\0';
+    }
+}
+
+
 static int item_eq(const A_Item *a, const A_Item *b)
 {
     return a->txt == b->txt
@@ -147,9 +226,22 @@ void textat(const int x
     if (!apply_xy(x, y)) return;
     int avail_w = ANSITTY_COLS - x;
     A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
-    for (; *text && avail_w > 0; avail_w--, text++, dest++)
+    utf8dec_t utf8dec = {0};
+    unsigned int size = utf8dec_size(&utf8dec, text);
+    if (size > avail_w)
     {
-        apply_char(dest, *text);
+        size = avail_w;
+    }
+    memset(&utf8dec, 0, sizeof(utf8dec));
+    for (; size > 0 && *text; text++)
+    {
+        unsigned int *res = utf8dec_next(&utf8dec, *text);
+        if (res != NULL)
+        {
+            apply_char(dest, *res);
+            size--;
+            dest++;
+        }
     }
 }
 
@@ -205,6 +297,11 @@ void square(int x
     chat(x+w-1, y+h-1, bchars[0]);
 }
 
+static void send_reset(char *buf, unsigned size)
+{
+    unsigned ofs = strlen(buf);
+    snprintf(buf+ofs, size-ofs, CSI "0m");
+}
 
 void refresh(unsigned all)
 {
@@ -244,66 +341,69 @@ void refresh(unsigned all)
                 snprintf(tmpbuf, sizeof(tmpbuf), CSI "%d;%dH", row+1, col+1);
                 out_col = col;
                 out_row = row;
-                last_color.style = 0; // also reset current style after jumping around
+                //memset(&last_color, 0, sizeof(last_color)); // induce a full color+style update after jumping around
             }
 
             // emit style sequence if needed
             if (work->style != last_color.style)
             {
-                const unsigned char st_mask = ST_UNDERLINE | ST_BLINK | ST_REVERSE;
+                //const unsigned char st_mask = ST_UNDERLINE | ST_BLINK | ST_REVERSE;
+                //
+                //// check if any of the style attributes have been removed (that requires a reset)
+                ////if (((last_color.style & work->style & st_mask)) != (last_color.style & st_mask))
+                //if ((work->style & st_mask) != (last_color.style & st_mask))
+                //{
+                //    // remove all style attributes
+                //    ofs = strlen(tmpbuf);
+                //    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "0m");
+                //    memset(&last_color, 0, sizeof(last_color)); // induce a full color+style update
+                //}
 
-                // check if any of the style attributes have been removed (that requires a reset)
-                if (((last_color.style & st_mask) & (work->style & st_mask)) != (last_color.style & st_mask))
+                if (((work->style & ST_UNDERLINE) == 0 && (last_color.style & ST_UNDERLINE) != 0)
+                    || ((work->style & ST_BLINK) == 0 && (last_color.style & ST_BLINK) != 0)
+                    || ((work->style & ST_REVERSE) == 0 && (last_color.style & ST_REVERSE) != 0)
+                    || ((work->style & ST_DIM) == 0 && (last_color.style & ST_DIM) != 0)
+                    || ((work->style & ST_BRIGHT) == 0 && (last_color.style & ST_BRIGHT) != 0)
+                )
                 {
-                    // remove all style attributes
-                    ofs = strlen(tmpbuf);
-                    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "0m");
+                    send_reset(tmpbuf, sizeof(tmpbuf));
                     memset(&last_color, 0, sizeof(last_color)); // induce a full color+style update
                 }
 
-                if ((work->style & ST_UNDERLINE) && !(last_color.style & ST_UNDERLINE))
+                if ((work->style & ST_UNDERLINE) != 0 && (last_color.style & ST_UNDERLINE) == 0)
                 {
                     // add underline 
                     ofs = strlen(tmpbuf);
                     snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "4m");
                 }
-                if ((work->style & ST_BLINK) && !(last_color.style & ST_BLINK))
+                if ((work->style & ST_BLINK) != 0 && (last_color.style & ST_BLINK) == 0)
                 {
                     // add blink
                     ofs = strlen(tmpbuf);
                     snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "5m");
                 }
-                if ((work->style & ST_REVERSE) && !(last_color.style & ST_REVERSE))
+                if ((work->style & ST_REVERSE) != 0 && (last_color.style & ST_REVERSE) == 0)
                 {
                     // add reverse
                     ofs = strlen(tmpbuf);
                     snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "7m");
                 }
-
-                if ((work->style & 0x03) != (last_color.style & 0x03))
+                if ((work->style & ST_DIM) != 0 && (last_color.style & ST_DIM) == 0)
                 {
-                    // color DIM/BRIGHT attribute changed
+                    // add dim
                     ofs = strlen(tmpbuf);
-                    if ((work->style & ST_BRIGHT))
-                    {
-                        // BRIGHT
-                        snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "1m");
-                    }
-                    else if ((work->style & ST_DIM))
-                    {
-                        // DIM
-                        snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "2m");
-                    }
-                    else 
-                    {
-                        // neither DIM nor BRIGHT ("NORMAL")
-                        snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "22m");
-                    }
+                    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "2m");
+                }
+                else if ((work->style & ST_BRIGHT) != 0 && (last_color.style & ST_BRIGHT) == 0)
+                {
+                    // add bright
+                    ofs = strlen(tmpbuf);
+                    snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "1m");
                 }
             }
 
             // emit cursor color sequence if needed
-            if (!item_same_color(work, screen) && !item_same_color(work, &last_color))
+            if (!item_same_color(work, &last_color))
             {
                 ofs = strlen(tmpbuf);
                 snprintf(tmpbuf+ofs, sizeof(tmpbuf)-ofs, CSI "%d;%dm", work->fg, work->bg);
@@ -313,8 +413,7 @@ void refresh(unsigned all)
 
             // finally, emit the character
             ofs = strlen(tmpbuf);
-            tmpbuf[ofs] = work->txt;
-            tmpbuf[ofs+1] = '\0';
+            utf8enc_ch(tmpbuf+ofs, work->txt);
 
             // send the buffer out
             mp_printf(&mp_plat_print, "%s", tmpbuf);
@@ -325,3 +424,4 @@ void refresh(unsigned all)
     // mark everything as refreshed
     context.screen = context.work;
 }
+
