@@ -5,6 +5,19 @@
 #include <stdio.h>
 #include <string.h>
 
+#define CSI "\x1b[" // Control Sequence Introducer
+#define OSC "\x1b]" // Operating System Command
+#define BEL "\a"    // Bell (beep)
+#define IS_FG_COLOR(c) ((c) >= FG_BLACK && (c) <= FG_RESET)
+#define IS_BG_COLOR(c) ((c) >= BG_BLACK && (c) <= BG_RESET)
+#define IS_STYLE(c) (((c) >= ST_BRIGHT && (c) <= ST_REVERSE) || (c) == ST_NORMAL || (c) == ST_RESET_ALL)
+
+/**
+ * @brief Single-digit buffer node
+ * This 32bit structure is used to store a single character position
+ * in a 2D buffered grid. It is used to store the working
+ * and screen buffers.
+ */
 typedef struct {
     char txt;
     unsigned char fg;
@@ -12,10 +25,33 @@ typedef struct {
     unsigned char style;
 } A_Item;
 
+/**
+ * @brief whole-screen contents buffer
+ */
 typedef struct {
     A_Item data[ANSITTY_COLS*ANSITTY_ROWS];
 } A_Item_s;
 
+/**
+ * @brief library context structure
+ * 
+ * This structure holds the current state of the library.
+ * It contains the working buffer, the screen buffer, and
+ * the current cursor position and color attributes.
+ * 
+ * The working buffer is used to store the current state of the
+ * screen. It is updated by the OUTPUT_FUNCTIONS.
+ * 
+ * @see OUTPUT_FUNCTIONS
+ * 
+ * When the refresh() function is called, the working buffer is
+ * compared against the screen buffer. Only the ANSI sequences
+ * making up the differences between the two buffers are sent
+ * to the terminal.
+ * 
+ * After refresh() is called, the working buffer and
+ * the screen buffer are guaranteed to be identical.
+ */
 typedef struct {
     A_Item_s work;
     A_Item_s screen;
@@ -28,14 +64,49 @@ typedef struct {
     } cursor;
 } A_Context;
 
+/**
+ * @brief Global library context
+ * @note This is allocated in static storage memory, 
+ *       and initialized to zero, according to language specifications.
+ */
+static A_Context context;
 
-#include <stdio.h>
 
+
+/**
+ * @brief UTF-8 sequence decoder 
+ * 
+ * This is a micropython-related helper function:
+ * 
+ * So it turns out that micropython does have a fairly complete
+ * support for unicode strings, that are first-class citizens
+ * much like they are in Python 3.
+ * The problem is that there is absolutely no native way to
+ * encode them in anything else than UTF-8.
+ * 
+ * This library talks to dumb terminals. They might or might not
+ * be able to decode UTF-8 sequences. Many times we have to
+ * assume we're dealing with ISO-8859-1 (latin1) or even
+ * plain ASCII.
+ * 
+ * This set of code is used to decode UTF-8 sequences coming from
+ * micropython strings. It is used to determine the number of
+ * characters in a string, and to decode them into codepoints.
+ */
 typedef struct {
     unsigned int state;
     unsigned int value;
 } utf8dec_t;
 
+/**
+ * @brief Decode the next UTF-8 sequence
+ * @param ctx Decoder context
+ * @param b Next byte in the UTF-8 sequence
+ * @return Pointer to the decoded codepoint, or NULL if the sequence is not complete yet
+ * @note The decoder context must be initialized to zero before the first call.
+ * @note The decoder context must be reset to zero before decoding a new string.
+ * @warning Incomplete, or erroneous UTF-8 sequences are silently ignored.
+ */
 static unsigned int *utf8dec_next(utf8dec_t *ctx, unsigned char b)
 {
     assert(ctx != NULL);
@@ -75,6 +146,15 @@ static unsigned int *utf8dec_next(utf8dec_t *ctx, unsigned char b)
     return NULL;
 }
 
+/**
+ * @brief Determine the number of codepoints in a UTF-8 string
+ * @param ctx Decoder context
+ * @param str UTF-8 string
+ * @return Number of codepoints in the string
+ * @note The decoder context must be initialized to zero before the first call.
+ * @note The decoder context must be reset to zero before decoding a new string.
+ * @warning Incomplete, or erroneous UTF-8 sequences are silently ignored.
+ */
 static unsigned int utf8dec_size(utf8dec_t *ctx, const char *str)
 {
     assert(ctx != NULL);
@@ -92,6 +172,14 @@ static unsigned int utf8dec_size(utf8dec_t *ctx, const char *str)
     return size;
 }
 
+/**
+ * @brief Encode a codepoint into a UTF-8 sequence
+ * @param out Output buffer
+ * @param codepoint Codepoint to encode
+ * @note The output buffer must be at least 4 bytes long.
+ * @warning This function does not check if the codepoint is valid.
+ * @warning This function does not check if the output buffer is large enough.
+ */
 static void utf8enc_ch(char *out, unsigned int codepoint)
 {
     if (codepoint < 0x80)
@@ -107,7 +195,14 @@ static void utf8enc_ch(char *out, unsigned int codepoint)
     }
 }
 
-
+/**
+ * @brief Compare two A_Item structures
+ * @param a First structure
+ * @param b Second structure
+ * @return 1 if the structures are identical, 0 otherwise
+ * @note This function identifies a match if two structures have the same
+ *       text, foreground color, background color, and style.
+ */
 static int item_eq(const A_Item *a, const A_Item *b)
 {
     return a->txt == b->txt
@@ -117,17 +212,27 @@ static int item_eq(const A_Item *a, const A_Item *b)
         ;
 }
 
+/**
+ * @brief Compare two A_Item structures, only considering color attributes
+ * @param a First structure
+ * @param b Second structure
+ * @return 1 if the structures have the same color attributes, 0 otherwise
+ */
 static int item_same_color(const A_Item *a, const A_Item *b)
 {
     return a->fg == b->fg
         && a->bg == b->bg;
 }
 
-static A_Context context;
 
-
-
-
+/**
+ * @brief Change current cursor position
+ * @param x New X coordinate
+ * @param y New Y coordinate
+ * @return 1 if the new position is valid, 0 otherwise
+ * @warning Passing an out-of-bounds coordinate causes the call to be silently
+ *         ignored.
+ */
 static int apply_xy(int x, int y)
 {
     if (x >= ANSITTY_COLS)
@@ -143,10 +248,27 @@ static int apply_xy(int x, int y)
     return 1;
 }
 
+
+/**
+ * @brief Change current text style
+ * @param code New style code
+ * @note The call is able to distinguish between a color code and a style code.
+ *       Brightness statuses (ST_BRIGHT, ST_DIM and ST_NORMAL) are treated
+ *       as mutually exclusive.
+ *       Other style codes (ST_UNDERLINE, ST_BLINK, ST_REVERSE) are treated
+ *       as independent.
+ * @note The ST_RESET_ALL code is treated as a special case, and resets all
+ *       style attributes, but preserves color.
+ *
+ * @warning Passing an invalid code causes the call to be silently ignored.
+ * @note The @p code parameter can be negative, in which case the style is
+ *       removed instead of added. 
+ */
 static void apply_color(int code)
 {
     int remove = code < 0;
     code = code < 0 ? -code : code;
+
     if (IS_FG_COLOR(code))
     {
         context.cursor.fg = code;
@@ -188,6 +310,11 @@ static void apply_color(int code)
     }
 }
 
+/**
+ * @brief Write a single character to specified buffer's node
+ * @param dest Destination buffer
+ * @param ch Character to write
+ */
 static void apply_char(A_Item *dest, const char ch)
 {
     dest->txt = ch;
