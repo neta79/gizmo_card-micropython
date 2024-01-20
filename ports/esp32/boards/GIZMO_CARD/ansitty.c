@@ -22,7 +22,8 @@ typedef struct {
     char txt;
     unsigned char fg;
     unsigned char bg;
-    unsigned char style;
+    unsigned char style:7;
+    unsigned char dirty:1;
 } A_Item;
 
 /**
@@ -53,7 +54,6 @@ typedef struct {
  * the screen buffer are guaranteed to be identical.
  */
 typedef struct {
-    A_Item_s work;
     A_Item_s screen;
     struct {
         unsigned col;
@@ -176,7 +176,7 @@ static unsigned int utf8dec_size(utf8dec_t *ctx, const char *str)
  * @brief Encode a codepoint into a UTF-8 sequence
  * @param out Output buffer
  * @param codepoint Codepoint to encode
- * @note The output buffer must be at least 4 bytes long.
+ * @note The output buffer must be at least 5 bytes long (written data will be null-terminated).
  * @warning This function does not check if the codepoint is valid.
  * @warning This function does not check if the output buffer is large enough.
  */
@@ -195,22 +195,6 @@ static void utf8enc_ch(char *out, unsigned int codepoint)
     }
 }
 
-/**
- * @brief Compare two A_Item structures
- * @param a First structure
- * @param b Second structure
- * @return 1 if the structures are identical, 0 otherwise
- * @note This function identifies a match if two structures have the same
- *       text, foreground color, background color, and style.
- */
-static int item_eq(const A_Item *a, const A_Item *b)
-{
-    return a->txt == b->txt
-        && a->fg == b->fg
-        && a->bg == b->bg
-        && a->style == b->style
-        ;
-}
 
 /**
  * @brief Compare two A_Item structures, only considering color attributes
@@ -248,6 +232,13 @@ static int apply_xy(int x, int y)
     return 1;
 }
 
+
+static inline A_Item *char_location(int x, int y)
+{
+    assert(x >= 0 && x < ANSITTY_COLS);
+    assert(y >= 0 && ANSITTY_ROWS);
+    return &context.screen.data[y*ANSITTY_COLS+x];
+}
 
 /**
  * @brief Change current text style
@@ -317,10 +308,20 @@ static void apply_color(int code)
  */
 static void apply_char(A_Item *dest, const char ch)
 {
-    dest->txt = ch;
-    dest->fg = context.cursor.fg;
-    dest->bg = context.cursor.bg;
-    dest->style = context.cursor.style;
+    unsigned int changed =
+        dest->txt != ch
+        || dest->fg != context.cursor.fg
+        || dest->bg != context.cursor.bg
+        || dest->style != context.cursor.style;
+    if (changed)
+    {
+        dest->txt = ch;
+        dest->fg = context.cursor.fg;
+        dest->bg = context.cursor.bg;
+        dest->style = context.cursor.style;
+        dest->dirty |= 1;
+    }
+
     context.cursor.col++;
 }
 
@@ -336,7 +337,6 @@ void setcolor(int code)
 
 void clear(void)
 {
-    memset(&context.work, 0, sizeof(context.work));
     memset(&context.screen, 0, sizeof(context.screen));
     mp_print_str(&mp_plat_print, CSI "2J");
 }
@@ -352,7 +352,7 @@ void textat(const int x
 {
     if (!apply_xy(x, y)) return;
     int avail_w = ANSITTY_COLS - x;
-    A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
+    A_Item *dest = char_location(x, y);
     utf8dec_t utf8dec = {0};
     unsigned int size = utf8dec_size(&utf8dec, text);
     if (size > avail_w)
@@ -379,7 +379,7 @@ void fillat(const int x
 {
     if (!apply_xy(x, y)) return;
     int avail_w = ANSITTY_COLS - x;
-    A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
+    A_Item *dest = char_location(x, y);
     for (; avail_w > 0 && size > 0; avail_w--, dest++, size--)
     {
         apply_char(dest, ch);
@@ -392,7 +392,7 @@ void chat(const int x
 {
     if (!apply_xy(x, y)) return;
     int avail_w = ANSITTY_COLS - x;
-    A_Item *dest = &context.work.data[y*ANSITTY_COLS+x];
+    A_Item *dest = char_location(x, y);
     if (avail_w > 0)
     {
         apply_char(dest, ch);
@@ -437,20 +437,14 @@ void refresh(unsigned all)
     char tmpbuf[64];
     unsigned ofs;
     A_Item last_color = {0};
-    if (all)
-    {
-        memset(&context.screen, 0, sizeof(context.screen));
-    }
 
     for (unsigned row = 0; row < ANSITTY_ROWS; row++)
     {
         for (unsigned col = 0; col < ANSITTY_COLS; col++)
         {
-            unsigned i = row*ANSITTY_COLS + col;
-            const A_Item *work = &context.work.data[i];
-            const A_Item *screen = &context.screen.data[i];
+            A_Item *work = char_location(col, row);
 
-            if (item_eq(work, screen))
+            if (! work->dirty)
             {
                 // current cell is unchanged. No update to send.
                 continue;
@@ -545,10 +539,10 @@ void refresh(unsigned all)
             // send the buffer out
             mp_printf(&mp_plat_print, "%s", tmpbuf);
             out_col++;
+
+            // mark character cell as refreshed
+            work->dirty = 0;
         }
     }
-
-    // mark everything as refreshed
-    context.screen = context.work;
 }
 
