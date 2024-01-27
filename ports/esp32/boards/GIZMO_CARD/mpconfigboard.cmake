@@ -12,6 +12,7 @@ list(APPEND MICROPY_SOURCE_PORT
     boards/GIZMO_CARD/led_pymodule.c
     boards/GIZMO_CARD/ansitty.h
     boards/GIZMO_CARD/ansitty.c
+    boards/GIZMO_CARD/ansikit.c
     boards/GIZMO_CARD/atty_pymodule.c
 
     )

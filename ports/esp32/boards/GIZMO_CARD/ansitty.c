@@ -8,6 +8,7 @@
 #define CSI "\x1b[" // Control Sequence Introducer
 #define OSC "\x1b]" // Operating System Command
 #define BEL "\a"    // Bell (beep)
+
 #define IS_FG_COLOR(c) ((c) >= FG_BLACK && (c) <= FG_RESET)
 #define IS_BG_COLOR(c) ((c) >= BG_BLACK && (c) <= BG_RESET)
 #define IS_STYLE(c) (((c) >= ST_BRIGHT && (c) <= ST_REVERSE) || (c) == ST_NORMAL || (c) == ST_RESET_ALL)
@@ -25,6 +26,7 @@ typedef struct {
     unsigned char style:7;
     unsigned char dirty:1;
 } A_Item;
+
 
 /**
  * @brief whole-screen contents buffer
@@ -58,9 +60,7 @@ typedef struct {
     struct {
         unsigned col;
         unsigned row;
-        unsigned char fg;
-        unsigned char bg;
-        unsigned char style;
+        A_Color color;
     } cursor;
 } A_Context;
 
@@ -72,31 +72,6 @@ typedef struct {
 static A_Context context;
 
 
-
-/**
- * @brief UTF-8 sequence decoder 
- * 
- * This is a micropython-related helper function:
- * 
- * So it turns out that micropython does have a fairly complete
- * support for unicode strings, that are first-class citizens
- * much like they are in Python 3.
- * The problem is that there is absolutely no native way to
- * encode them in anything else than UTF-8.
- * 
- * This library talks to dumb terminals. They might or might not
- * be able to decode UTF-8 sequences. Many times we have to
- * assume we're dealing with ISO-8859-1 (latin1) or even
- * plain ASCII.
- * 
- * This set of code is used to decode UTF-8 sequences coming from
- * micropython strings. It is used to determine the number of
- * characters in a string, and to decode them into codepoints.
- */
-typedef struct {
-    unsigned int state;
-    unsigned int value;
-} utf8dec_t;
 
 /**
  * @brief Decode the next UTF-8 sequence
@@ -170,6 +145,12 @@ static unsigned int utf8dec_size(utf8dec_t *ctx, const char *str)
     }
 
     return size;
+}
+
+size_t utf8_strlen(const char *str)
+{
+    utf8dec_t utf8dec = {0};
+    return utf8dec_size(&utf8dec, str);
 }
 
 /**
@@ -262,11 +243,11 @@ static void apply_color(int code)
 
     if (IS_FG_COLOR(code))
     {
-        context.cursor.fg = code;
+        context.cursor.color.fg = code;
     }
     else if (IS_BG_COLOR(code))
     {
-        context.cursor.bg = code;
+        context.cursor.color.bg = code;
     }
     else switch (code) // assume it's ST_*
     {
@@ -274,10 +255,10 @@ static void apply_color(int code)
     case ST_DIM:
         if (remove)
         {
-            context.cursor.style = context.cursor.style & ~code;
+            context.cursor.color.style = context.cursor.color.style & ~code;
         }
         else {
-            context.cursor.style = (context.cursor.style & ~0x03) | code;
+            context.cursor.color.style = (context.cursor.color.style & ~0x03) | code;
         }
         break;
     case ST_UNDERLINE:
@@ -285,16 +266,16 @@ static void apply_color(int code)
     case ST_REVERSE:
         if (remove)
         {
-            context.cursor.style = context.cursor.style & ~code;
+            context.cursor.color.style = context.cursor.color.style & ~code;
         } else {
-            context.cursor.style = context.cursor.style | code;
+            context.cursor.color.style = context.cursor.color.style | code;
         }
         break;
     case ST_NORMAL:
-        context.cursor.style = context.cursor.style & ~0x03;
+        context.cursor.color.style = context.cursor.color.style & ~0x03;
         break;
     case ST_RESET_ALL:
-        context.cursor.style = 0;
+        context.cursor.color.style = 0;
         break;
     default:
         break;
@@ -310,15 +291,15 @@ static void apply_char(A_Item *dest, const char ch)
 {
     unsigned int changed =
         dest->txt != ch
-        || dest->fg != context.cursor.fg
-        || dest->bg != context.cursor.bg
-        || dest->style != context.cursor.style;
+        || dest->fg != context.cursor.color.fg
+        || dest->bg != context.cursor.color.bg
+        || dest->style != context.cursor.color.style;
     if (changed)
     {
         dest->txt = ch;
-        dest->fg = context.cursor.fg;
-        dest->bg = context.cursor.bg;
-        dest->style = context.cursor.style;
+        dest->fg = context.cursor.color.fg;
+        dest->bg = context.cursor.color.bg;
+        dest->style = context.cursor.color.style;
         dest->dirty |= 1;
     }
 
@@ -335,23 +316,46 @@ void setcolor(int code)
     apply_color(code);
 }
 
+const A_Color *peek_color(void)
+{
+    return &context.cursor.color;
+}
+
+void poke_color(const A_Color *color)
+{
+    assert(color != NULL);
+    context.cursor.color = *color;
+}
+
+void clearcolor()
+{
+    memset(&context.cursor.color, 0, sizeof(context.cursor.color));
+}
+
 void clear(void)
 {
     memset(&context.screen, 0, sizeof(context.screen));
     mp_print_str(&mp_plat_print, CSI "2J");
 }
 
-void text(const char *text)
+size_t text(const char *text)
 {
-    textat(context.cursor.col, context.cursor.row, text);
+    return textat(context.cursor.col, context.cursor.row, text);
 }
 
-void textat(const int x
+size_t textat_ex(const int x
             , const int y
-            , const char *text) 
+            , const char *text
+            , const int len) 
 {
-    if (!apply_xy(x, y)) return;
+    size_t res = 0;
+
+    if (!apply_xy(x, y)) return 0;
     int avail_w = ANSITTY_COLS - x;
+    if (len >= 0 && avail_w > len)
+    {
+        avail_w = len;
+    }
     A_Item *dest = char_location(x, y);
     utf8dec_t utf8dec = {0};
     unsigned int size = utf8dec_size(&utf8dec, text);
@@ -368,8 +372,18 @@ void textat(const int x
             apply_char(dest, *res);
             size--;
             dest++;
+            res++;
         }
     }
+
+    return res;
+}
+
+size_t textat(const int x
+            , const int y
+            , const char *text) 
+{
+    return textat_ex(x, y, text, -1);
 }
 
 void fillat(const int x
@@ -545,4 +559,3 @@ void refresh(unsigned all)
         }
     }
 }
-

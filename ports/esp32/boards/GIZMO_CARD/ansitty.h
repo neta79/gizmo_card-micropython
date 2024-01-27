@@ -31,6 +31,10 @@
 
 #pragma once
 
+
+#include <stddef.h>
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -154,7 +158,7 @@ void clear(void);
  * @see gotoxy()
  * @see setcolor()
  */
-void text(const char *text);
+size_t text(const char *text);
 
 /**
  * @brief Output text at the specified position, using the current text style.
@@ -165,7 +169,7 @@ void text(const char *text);
  * @param y Y coordinate (min=0, max=ANSITTY_ROWS-1)
  * @param text Text to output
  */
-void textat(const int x
+size_t textat(const int x
             , const int y
             , const char *text);
 
@@ -224,6 +228,51 @@ void square(int x
 void refresh(unsigned all);
 
 /** @} */ // End of OUTPUT_FUNCTIONS group
+
+
+
+
+typedef struct {
+    unsigned char fg;
+    unsigned char bg;
+    unsigned char style;
+} A_Color;
+
+const A_Color *peek_color(void);
+void poke_color(const A_Color *color);
+void clearcolor();
+size_t textat_ex(const int x
+            , const int y
+            , const char *text
+            , const int len);
+
+/**
+ * @brief UTF-8 sequence decoder 
+ * 
+ * This is a micropython-related helper function:
+ * 
+ * So it turns out that micropython does have a fairly complete
+ * support for unicode strings, that are first-class citizens
+ * much like they are in Python 3.
+ * The problem is that there is absolutely no native way to
+ * encode them in anything else than UTF-8.
+ * 
+ * This library talks to dumb terminals. They might or might not
+ * be able to decode UTF-8 sequences. Many times we have to
+ * assume we're dealing with ISO-8859-1 (latin1) or even
+ * plain ASCII.
+ * 
+ * This set of code is used to decode UTF-8 sequences coming from
+ * micropython strings. It is used to determine the number of
+ * characters in a string, and to decode them into codepoints.
+ */
+typedef struct {
+    unsigned int state;
+    unsigned int value;
+} utf8dec_t;
+
+size_t utf8_strlen(const char *str);
+
 
 #ifdef __cplusplus
 } // extern "C"

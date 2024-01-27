@@ -56,17 +56,37 @@ STATIC mp_obj_t refresh_obj_(size_t n_args, const mp_obj_t *args) {
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(refresh_obj, 0, 1, refresh_obj_);
 
 
-STATIC mp_obj_t textat_obj_(const mp_obj_t x, const mp_obj_t y, const mp_obj_t txt) 
+STATIC mp_obj_t textat_obj_(size_t n_args, const mp_obj_t *args) 
 {
-    const mp_int_t x_ = mp_obj_get_int(x);
-    const mp_int_t y_ = mp_obj_get_int(y);
-    const char *text_ = mp_obj_str_get_str(txt);
+    const mp_int_t x_ = mp_obj_get_int(args[0]);
+    const mp_int_t y_ = mp_obj_get_int(args[1]);
 
-    textat(x_, y_, text_);
+    bool first = true;
+    for (int i=2; i<n_args; i++) 
+    {
+        mp_obj_t arg = args[i];
+
+        if (mp_obj_is_small_int(arg))
+        {
+            int code = mp_obj_get_int(arg);
+            setcolor(code);
+            continue;
+        }
+
+        const char *text_ = mp_obj_str_get_str(arg);
+        if (first)
+        {
+            textat(x_, y_, text_);
+            first = false;
+        }
+        else {
+            text(text_);
+        }
+    }
 
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(textat_obj, textat_obj_);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(textat_obj, 2, MP_OBJ_FUN_ARGS_MAX, textat_obj_);
 
 
 STATIC mp_obj_t square_obj_(size_t n_args, const mp_obj_t *args) {
@@ -86,7 +106,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(square_obj, 4, 5, square_obj_);
 
 
 STATIC const mp_rom_map_elem_t atty_module_globals_table[] = {
-    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_tty) },
+    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ansitty) },
 
     { MP_ROM_QSTR(MP_QSTR_ROWS), MP_ROM_INT(ANSITTY_ROWS) },
     { MP_ROM_QSTR(MP_QSTR_COLS), MP_ROM_INT(ANSITTY_COLS) },
@@ -137,4 +157,4 @@ const mp_obj_module_t atty_module = {
     .globals = (mp_obj_dict_t *)&atty_module_globals,
 };
 
-MP_REGISTER_MODULE(MP_QSTR__atty, atty_module);
+MP_REGISTER_MODULE(MP_QSTR_ansitty, atty_module);
