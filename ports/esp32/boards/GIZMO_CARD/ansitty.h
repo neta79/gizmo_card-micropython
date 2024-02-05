@@ -241,11 +241,18 @@ typedef struct {
 const A_Color *peek_color(void);
 void poke_color(const A_Color *color);
 void clearcolor();
-size_t textat_ex(const int x
-            , const int y
+size_t textat_ex(int x
+            , int y
             , const char *text
-            , const int len);
-
+            , int ofs_start
+            , int ofs_end);
+size_t textat_ex_ll(int x
+            , int y
+            , const char *text
+            , size_t size
+            , int ofs_start
+            , int ofs_end);
+            
 /**
  * @brief UTF-8 sequence decoder 
  * 

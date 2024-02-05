@@ -1,5 +1,5 @@
 
-
+#include <limits.h>
 #include "ansitty.h"
 #include "py/mpprint.h"
 #include <stdio.h>
@@ -152,6 +152,7 @@ size_t utf8_strlen(const char *str)
     utf8dec_t utf8dec = {0};
     return utf8dec_size(&utf8dec, str);
 }
+
 
 /**
  * @brief Encode a codepoint into a UTF-8 sequence
@@ -343,47 +344,70 @@ size_t text(const char *text)
     return textat(context.cursor.col, context.cursor.row, text);
 }
 
-size_t textat_ex(const int x
-            , const int y
+size_t textat_ex_ll(int x
+            , int y
             , const char *text
-            , const int len) 
+            , size_t size
+            , int ofs_start
+            , int ofs_end) 
 {
-    size_t res = 0;
+    int skip = 0;
+    if (x < 0)
+    {
+        skip = -x;
+        x = 0;
+    }
+    if (skip > ofs_start)
+    {
+        ofs_start = skip;
+    }
 
     if (!apply_xy(x, y)) return 0;
+
     int avail_w = ANSITTY_COLS - x;
-    if (len >= 0 && avail_w > len)
-    {
-        avail_w = len;
-    }
+
     A_Item *dest = char_location(x, y);
-    utf8dec_t utf8dec = {0};
-    unsigned int size = utf8dec_size(&utf8dec, text);
     if (size > avail_w)
     {
         size = avail_w;
     }
-    memset(&utf8dec, 0, sizeof(utf8dec));
-    for (; size > 0 && *text; text++)
+
+    utf8dec_t utf8dec = {0};
+    size_t ofs;
+    for (ofs = 0; 
+         ofs < ofs_end && size > 0 && *text; 
+         text++)
     {
         unsigned int *res = utf8dec_next(&utf8dec, *text);
-        if (res != NULL)
+        if (res == NULL) continue;
+        if (ofs >= ofs_start)
         {
             apply_char(dest, *res);
-            size--;
             dest++;
-            res++;
         }
+        size--;
+        ofs++;
     }
 
-    return res;
+    return ofs;
+}
+
+size_t textat_ex(int x
+            , int y
+            , const char *text
+            , int ofs_start
+            , int ofs_end) 
+{
+    utf8dec_t utf8dec = {0};
+    unsigned int size = utf8dec_size(&utf8dec, text);
+    return textat_ex_ll(x, y, text, size, ofs_start, ofs_end);
 }
 
 size_t textat(const int x
             , const int y
             , const char *text) 
 {
-    return textat_ex(x, y, text, -1);
+    return textat_ex(x, y, text, 0, INT_MAX);
 }
 
 void fillat(const int x
