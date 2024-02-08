@@ -23,8 +23,7 @@ typedef struct {
     char txt;
     unsigned char fg;
     unsigned char bg;
-    unsigned char style:7;
-    unsigned char dirty:1;
+    unsigned char style;
 } A_Item;
 
 
@@ -56,6 +55,7 @@ typedef struct {
  * the screen buffer are guaranteed to be identical.
  */
 typedef struct {
+    A_Item_s prev;
     A_Item_s screen;
     struct {
         unsigned col;
@@ -190,6 +190,13 @@ static int item_same_color(const A_Item *a, const A_Item *b)
         && a->bg == b->bg;
 }
 
+static int char_eq(const A_Item *a, const A_Item *b)
+{
+    return a->txt == b->txt
+        && a->fg == b->fg
+        && a->bg == b->bg
+        && a->style == b->style;
+}
 
 /**
  * @brief Change current cursor position
@@ -220,6 +227,13 @@ static inline A_Item *char_location(int x, int y)
     assert(x >= 0 && x < ANSITTY_COLS);
     assert(y >= 0 && ANSITTY_ROWS);
     return &context.screen.data[y*ANSITTY_COLS+x];
+}
+
+static inline A_Item *old_location(int x, int y)
+{
+    assert(x >= 0 && x < ANSITTY_COLS);
+    assert(y >= 0 && ANSITTY_ROWS);
+    return &context.prev.data[y*ANSITTY_COLS+x];
 }
 
 /**
@@ -290,20 +304,10 @@ static void apply_color(int code)
  */
 static void apply_char(A_Item *dest, const char ch)
 {
-    unsigned int changed =
-        dest->txt != ch
-        || dest->fg != context.cursor.color.fg
-        || dest->bg != context.cursor.color.bg
-        || dest->style != context.cursor.color.style;
-    if (changed)
-    {
-        dest->txt = ch;
-        dest->fg = context.cursor.color.fg;
-        dest->bg = context.cursor.color.bg;
-        dest->style = context.cursor.color.style;
-        dest->dirty |= 1;
-    }
-
+    dest->txt = ch;
+    dest->fg = context.cursor.color.fg;
+    dest->bg = context.cursor.color.bg;
+    dest->style = context.cursor.color.style;
     context.cursor.col++;
 }
 
@@ -481,8 +485,9 @@ void refresh(unsigned all)
         for (unsigned col = 0; col < ANSITTY_COLS; col++)
         {
             A_Item *work = char_location(col, row);
+            A_Item *old = old_location(col, row);
 
-            if (! work->dirty)
+            if (!all && char_eq(work, old))
             {
                 // current cell is unchanged. No update to send.
                 continue;
@@ -578,8 +583,9 @@ void refresh(unsigned all)
             mp_printf(&mp_plat_print, "%s", tmpbuf);
             out_col++;
 
-            // mark character cell as refreshed
-            work->dirty = 0;
         }
     }
+
+    // remember the current state of the working buffer
+    context.prev = context.screen;
 }
