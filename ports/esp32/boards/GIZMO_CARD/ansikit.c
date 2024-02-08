@@ -13,6 +13,8 @@ typedef struct Rect_s {
 
     A_Color color;
     int txt_x, txt_y;
+    int txt_ymin, txt_ymax;
+    const char *name;
 } Rect_t;
 
 //------------------------------------//
@@ -351,6 +353,27 @@ __attribute__((unused)) void test_Rect_visibleArea__multiple_parents_neg_offset(
 }
 
 
+static const char *__Rect_name(const Rect_t *self) 
+{
+    if (self->name == NULL) 
+    {
+        return "unnamed";
+    }
+    return self->name;
+}
+
+
+static void __Rect_update_bb(Rect_t *self) 
+{
+    if (self->txt_ymin > self->txt_y) 
+    {
+        self->txt_ymin = self->txt_y;
+    }
+    if (self->txt_ymax < self->txt_y) 
+    {
+        self->txt_ymax = self->txt_y;
+    }
+}
 
 
 /**
@@ -384,11 +407,6 @@ static const A_Color *__Rect_get_color(const Rect_t *self)
 
     return peek_color();
 }
-
-
-
-
-
 
 
 /**
@@ -556,8 +574,8 @@ static mp_obj_t __Rect_text_ll(Rect_t *self, size_t argc, const mp_obj_t *argv)
     int x0 = abs_x + self->txt_x;
     int y0 = abs_y + self->txt_y;
 
-    int residualWidth = va.x + va.w - self->txt_x;
-    int skipLeft = va.x - self->txt_x;
+    int residualWidth = va.w - self->txt_x;
+    int skipLeft = -self->txt_x;
     if (skipLeft < 0) 
     {
         skipLeft = 0;
@@ -582,6 +600,7 @@ static mp_obj_t __Rect_text_ll(Rect_t *self, size_t argc, const mp_obj_t *argv)
             continue;
         }
 
+
         if (residualWidth > 0)
         {
             const char *txt = mp_obj_str_get_str(arg);
@@ -589,6 +608,11 @@ static mp_obj_t __Rect_text_ll(Rect_t *self, size_t argc, const mp_obj_t *argv)
             res += len;
             residualWidth -= len;
             x0 += len;
+            skipLeft -= len;
+            if (skipLeft < 0) 
+            {
+                skipLeft = 0;
+            }
             self->txt_x += len;
         }
     }
@@ -641,6 +665,11 @@ STATIC mp_obj_t Rect_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
     self->parent = NULL;
     self->painters = mp_obj_new_list(0, NULL);
     self->children = mp_obj_new_list(0, NULL);
+    memset(&self->color, 0, sizeof(A_Color));
+    self->txt_x = 0;
+    self->txt_y = 0;
+    self->txt_ymin = 0;
+    self->txt_ymax = 0;
 
     return MP_OBJ_FROM_PTR(self);
 }
@@ -652,8 +681,8 @@ STATIC mp_obj_t Rect_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
 STATIC void Rect_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) 
 {
     Rect_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_printf(print, "<Rect x=%d,y=%d,w=%d,h=%d>", 
-        self->x, self->y, self->w, self->h);
+    mp_printf(print, "<Rect %s x=%d,y=%d,w=%d,h=%d>",
+        __Rect_name(self), self->x, self->y, self->w, self->h); 
 }
 
 
@@ -697,6 +726,7 @@ STATIC mp_obj_t Rect_gotoxy(mp_obj_t self_in, mp_obj_t x, mp_obj_t y) {
     Rect_t *self = MP_OBJ_TO_PTR(self_in);
     self->txt_x = mp_obj_get_int(x);
     self->txt_y = mp_obj_get_int(y);
+    __Rect_update_bb(self);
     return self_in;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_3(Rect_gotoxy_obj, Rect_gotoxy);
@@ -769,6 +799,7 @@ STATIC mp_obj_t Rect_chat(size_t argc, const mp_obj_t *argv)
 
     self->txt_x = x+1;
     self->txt_y = y;
+    __Rect_update_bb(self);
 
     return mp_obj_new_int(1);
 }
@@ -796,6 +827,8 @@ STATIC mp_obj_t Rect_clear(mp_obj_t self_in) {
 
     self->txt_x = 0;
     self->txt_y = 0;
+    self->txt_ymin = 0;
+    self->txt_ymax = 0;
 
     return self_in;
 }
@@ -1052,6 +1085,28 @@ STATIC mp_obj_t Rect_call(mp_obj_t fun, size_t n_args, size_t n_kw, const mp_obj
     return Rect_paint(1, &fun);
 }
 
+STATIC mp_obj_t Rect_get_txt_ymin(mp_obj_t self_in) {
+    Rect_t *self = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_int(self->txt_ymin);
+}
+STATIC mp_obj_t Rect_get_txt_ymax(mp_obj_t self_in) {
+    Rect_t *self = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_int(self->txt_ymax);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(Rect_get_txt_ymin_obj, Rect_get_txt_ymin);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(Rect_get_txt_ymax_obj, Rect_get_txt_ymax);
+
+
+STATIC mp_obj_t Rect_set_name(mp_obj_t self_in, mp_obj_t name_) {
+    Rect_t *self = MP_OBJ_TO_PTR(self_in);
+    const char *name = mp_obj_str_get_str(name_);
+    self->name = strdup(name);
+    return mp_obj_new_int(self->txt_ymin);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(Rect_set_name_obj, Rect_set_name);
+
+
 STATIC const mp_rom_map_elem_t Rect_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_add), MP_ROM_PTR(&Rect_add_obj) },
     { MP_ROM_QSTR(MP_QSTR_paint), MP_ROM_PTR(&Rect_paint_obj) },
@@ -1073,8 +1128,10 @@ STATIC const mp_rom_map_elem_t Rect_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_set_coords), MP_ROM_PTR(&Rect_set_coords_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_parent), MP_ROM_PTR(&Rect_get_parent_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_parent), MP_ROM_PTR(&Rect_set_parent_obj) },
-    { MP_ROM_QSTR(MP_QSTR_set_parent), MP_ROM_PTR(&Rect_set_parent_obj) },
-    
+    { MP_ROM_QSTR(MP_QSTR_get_txt_ymin), MP_ROM_PTR(&Rect_get_txt_ymin_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_txt_ymax), MP_ROM_PTR(&Rect_get_txt_ymax_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_name), MP_ROM_PTR(&Rect_set_name_obj) },
+    // { MP_ROM_QSTR(MP_QSTR_run_tests), MP_ROM_PTR(&Rect_run_tests_obj) }, // keep commented to reduce object code size
 };
 STATIC MP_DEFINE_CONST_DICT(Rect_locals_dict, Rect_locals_dict_table);
 
